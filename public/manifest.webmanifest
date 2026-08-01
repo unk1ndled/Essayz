@@ -1,0 +1,17 @@
+{
+  "name": "Essayz — weekly writing circle",
+  "short_name": "Essayz",
+  "description": "Write privately. Read together on Sunday.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f0e8",
+  "theme_color": "#f4f0e8",
+  "icons": [
+    {
+      "src": "/mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
