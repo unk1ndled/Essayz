@@ -7,7 +7,9 @@ describe("weekly reveal schedule", () => {
     expect(week.key).toBe("2026-07-27");
     expect(week.endsOn).toBe("2026-08-02");
     expect(week.unlockAt).toBe("2026-08-02T08:00:00.000Z");
+    expect(week.closesAt).toBe("2026-08-02T22:00:00.000Z");
     expect(week.isUnlocked).toBe(false);
+    expect(week.isOpen).toBe(true);
   });
 
   it("unlocks exactly at Sunday 10:00 local time", () => {
@@ -23,6 +25,32 @@ describe("weekly reveal schedule", () => {
     );
     expect(before.isUnlocked).toBe(false);
     expect(atDeadline.isUnlocked).toBe(true);
+    expect(atDeadline.isOpen).toBe(true);
+  });
+
+  it("keeps the same writing week open after the Sunday reveal", () => {
+    const sundayEvening = weekForDate(
+      new Date("2026-08-02T20:30:00.000Z"),
+      "Europe/Paris",
+    );
+    expect(sundayEvening.key).toBe("2026-07-27");
+    expect(sundayEvening.isUnlocked).toBe(true);
+    expect(sundayEvening.isOpen).toBe(true);
+  });
+
+  it("starts a new writing week at local Monday midnight", () => {
+    const previous = weekForKey(
+      "2026-07-27",
+      new Date("2026-08-02T22:00:00.000Z"),
+      "Europe/Paris",
+    );
+    const current = weekForDate(
+      new Date("2026-08-02T22:00:00.000Z"),
+      "Europe/Paris",
+    );
+    expect(previous.isOpen).toBe(false);
+    expect(current.key).toBe("2026-08-03");
+    expect(current.isOpen).toBe(true);
   });
 
   it("accounts for Paris winter time", () => {

@@ -49,4 +49,9 @@ export const api = {
     }),
   archive: () => request<{ entries: ArchiveEntry[] }>("/api/archive"),
   essay: (id: string) => request<{ essay: FullEssay; week: WeekInfo }>(`/api/essays/${id}`),
+  setEssayHeart: (id: string, hearted: boolean) =>
+    request<{ hearted: boolean; heartCount: number }>(`/api/essays/${id}/heart`, {
+      method: "PUT",
+      body: JSON.stringify({ hearted }),
+    }),
 };

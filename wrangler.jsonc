@@ -1,23 +1,24 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "essayz",
-  "main": "./worker/index.ts",
-  "compatibility_date": "2026-08-01",
-  "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "essayz-db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "vars": {
-    "APP_TIME_ZONE": "Europe/Paris",
-    "SESSION_DAYS": "30",
-    "PBKDF2_ITERATIONS": "210000"
-  }
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "essayz",
+	"main": "./worker/index.ts",
+	"compatibility_date": "2026-08-01",
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "essayz-db",
+			"database_id": "17c1b0be-70ee-4f14-a590-1ad1808be8c6",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		"APP_TIME_ZONE": "Europe/Paris",
+		"SESSION_DAYS": "30"
+	}
 }

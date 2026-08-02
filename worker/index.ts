@@ -4,6 +4,7 @@ import {
   destroySession,
   expiredSessionCookie,
   inviteCodeMatches,
+  PASSWORD_HASH_ITERATIONS,
   passwordRecord,
   verifyPassword,
   type SessionUser,
@@ -17,7 +18,6 @@ interface Env {
   INVITE_CODE?: string;
   APP_TIME_ZONE: string;
   SESSION_DAYS: string;
-  PBKDF2_ITERATIONS: string;
 }
 
 interface EssayRow {
@@ -31,6 +31,8 @@ interface EssayRow {
   updated_at: string;
   username?: string;
   display_name?: string;
+  heart_count?: number;
+  hearted_by_viewer?: number;
 }
 
 interface WeekRow extends Omit<EssayRow, "status"> {
@@ -128,7 +130,7 @@ async function register(request: Request, env: Env): Promise<Response> {
     .first();
   if (existing) throw new ApiError(409, "That username is already taken");
 
-  const iterations = Math.max(100_000, Number(env.PBKDF2_ITERATIONS) || 210_000);
+  const iterations = PASSWORD_HASH_ITERATIONS;
   const passwordData = await passwordRecord(password, iterations);
   const user = { id: crypto.randomUUID(), username, displayName };
   await env.DB.prepare(
@@ -239,7 +241,7 @@ async function saveCurrentEssay(request: Request, env: Env): Promise<Response> {
   sameOrigin(request);
   const user = await requireUser(env, request);
   const week = weekForDate(new Date(), appTimeZone(env));
-  if (week.isUnlocked) throw new ApiError(409, "This week is already unlocked");
+  if (!week.isOpen) throw new ApiError(409, "This writing week is closed");
 
   const input = await body<{ title?: string; markdown?: string; status?: string }>(request);
   const title = (input.title ?? "").trim();
@@ -321,11 +323,16 @@ async function archive(request: Request, env: Env): Promise<Response> {
 async function essayById(request: Request, env: Env, essayId: string): Promise<Response> {
   const user = await requireUser(env, request);
   const row = await env.DB.prepare(
-    `SELECT essays.*, users.username, users.display_name
+    `SELECT essays.*, users.username, users.display_name,
+            (SELECT COUNT(*) FROM essay_hearts WHERE essay_id = essays.id) AS heart_count,
+            EXISTS(
+              SELECT 1 FROM essay_hearts
+              WHERE essay_id = essays.id AND user_id = ?
+            ) AS hearted_by_viewer
      FROM essays JOIN users ON users.id = essays.user_id
      WHERE essays.id = ?`,
   )
-    .bind(essayId)
+    .bind(user.id, essayId)
     .first<EssayRow>();
   if (!row) throw new ApiError(404, "Essay not found");
 
@@ -349,9 +356,54 @@ async function essayById(request: Request, env: Env, essayId: string): Promise<R
         displayName: row.display_name,
       },
       isMine,
+      heartCount: row.heart_count ?? 0,
+      heartedByMe: Boolean(row.hearted_by_viewer),
     },
     week,
   });
+}
+
+async function setEssayHeart(request: Request, env: Env, essayId: string): Promise<Response> {
+  sameOrigin(request);
+  const user = await requireUser(env, request);
+  const input = await body<{ hearted?: unknown }>(request);
+  if (typeof input.hearted !== "boolean") throw new ApiError(400, "Hearted must be a boolean");
+
+  const database = env.DB.withSession("first-primary");
+  const essay = await database.prepare(
+    "SELECT user_id, week_key, status FROM essays WHERE id = ?",
+  )
+    .bind(essayId)
+    .first<Pick<EssayRow, "user_id" | "week_key" | "status">>();
+  if (!essay) throw new ApiError(404, "Essay not found");
+
+  const week = weekForKey(essay.week_key, new Date(), appTimeZone(env));
+  if (!week.isUnlocked || essay.status !== "submitted") {
+    throw new ApiError(404, "Essay not found");
+  }
+  if (essay.user_id === user.id) throw new ApiError(400, "You cannot heart your own essay");
+
+  if (input.hearted) {
+    await database.prepare(
+      `INSERT INTO essay_hearts (essay_id, user_id, created_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(essay_id, user_id) DO NOTHING`,
+    )
+      .bind(essayId, user.id, new Date().toISOString())
+      .run();
+  } else {
+    await database.prepare("DELETE FROM essay_hearts WHERE essay_id = ? AND user_id = ?")
+      .bind(essayId, user.id)
+      .run();
+  }
+
+  const heartCount = await database.prepare(
+    "SELECT COUNT(*) AS count FROM essay_hearts WHERE essay_id = ?",
+  )
+    .bind(essayId)
+    .first<number>("count");
+
+  return json({ hearted: input.hearted, heartCount: heartCount ?? 0 });
 }
 
 async function api(request: Request, env: Env): Promise<Response> {
@@ -376,6 +428,10 @@ async function api(request: Request, env: Env): Promise<Response> {
     return saveCurrentEssay(request, env);
   }
   if (request.method === "GET" && pathname === "/api/archive") return archive(request, env);
+  const heartMatch = pathname.match(/^\/api\/essays\/([a-f0-9-]+)\/heart$/i);
+  if (request.method === "PUT" && heartMatch) {
+    return setEssayHeart(request, env, heartMatch[1]);
+  }
   const essayMatch = pathname.match(/^\/api\/essays\/([a-f0-9-]+)$/i);
   if (request.method === "GET" && essayMatch) {
     return essayById(request, env, essayMatch[1]);
@@ -389,7 +445,11 @@ export default {
       return await api(request, env);
     } catch (error) {
       if (error instanceof ApiError) return json({ error: error.message }, { status: error.status });
-      console.error(error);
+      console.error(JSON.stringify({
+        message: "Unhandled API error",
+        error: error instanceof Error ? error.message : String(error),
+        path: new URL(request.url).pathname,
+      }));
       return json({ error: "Something went wrong" }, { status: 500 });
     }
   },

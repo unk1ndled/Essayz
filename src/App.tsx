@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiFailure } from "./api";
+import { Confetti, type CelebrationKind } from "./Confetti";
 import { Markdown } from "./Markdown";
+import { MarkdownEditor } from "./MarkdownEditor";
 import type { ArchiveEntry, FullEssay, Rules, User, WeekEntry, WeekInfo } from "./types";
 
 type Screen = "week" | "archive" | "profile";
@@ -75,22 +77,19 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
 
   return (
     <main className="auth-shell">
-      <section className="auth-intro">
-        <div className="brand-mark" aria-hidden="true">E<span>.</span></div>
-        <p className="eyebrow">A private writing circle</p>
-        <h1>Write alone.<br />Read together.</h1>
-        <p className="auth-copy">
-          One essay each week. Everything stays sealed until Sunday morning.
-        </p>
-        <div className="rule-line"><span>01</span><p>Write in Markdown, at your own pace.</p></div>
-        <div className="rule-line"><span>02</span><p>Submit before the Sunday reveal.</p></div>
-        <div className="rule-line"><span>03</span><p>Read every voice at the same time.</p></div>
-      </section>
-
-      <section className="auth-panel">
+      <div className="auth-page">
+        <header className="auth-intro">
+          <h1>Essayz</h1>
+          <p>A private weekly writing circle.</p>
+        </header>
+        <section className="auth-panel">
+          <h2>{mode === "login" ? "Sign in" : "Join the circle"}</h2>
+          <p className="auth-copy">
+            Write privately through the week. Submitted essays open for everyone on Sunday at 10:00.
+          </p>
         <div className="auth-tabs" role="tablist">
-          <button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>Sign in</button>
-          <button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>Join the circle</button>
+          <button aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>Sign in</button>
+          <button aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>Create account</button>
         </div>
         <form onSubmit={submit}>
           {mode === "register" && (
@@ -101,7 +100,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
           )}
           <label>
             Username
-            <input required minLength={3} maxLength={24} autoCapitalize="none" autoComplete="username" placeholder="ada" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
+            <input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_-]{3,24}" title="3–24 letters, numbers, underscores, or hyphens" autoCapitalize="none" autoComplete="username" placeholder="ada" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
           </label>
           <label>
             Password
@@ -116,7 +115,9 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button wide" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Enter Essayz" : "Create my account"}</button>
         </form>
-      </section>
+          <p className="auth-note">Sunday submissions stay in the current week until midnight.</p>
+        </section>
+      </div>
     </main>
   );
 }
@@ -124,22 +125,21 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
 function EntryCard({ entry, unlocked, onOpen, onEdit }: { entry: WeekEntry; unlocked: boolean; onOpen: () => void; onEdit: () => void }) {
   const readable = entry.isMine || (unlocked && entry.status === "submitted");
   const label = entry.status === "submitted" ? "Submitted" : entry.status === "draft" ? "Draft" : "Not started";
+  const action = entry.isMine ? "edit" : readable ? "read" : "sealed";
   return (
-    <button className={`entry-card ${readable ? "readable" : "sealed"}`} onClick={entry.isMine && !unlocked ? onEdit : readable && entry.id ? onOpen : undefined} disabled={!readable && !entry.isMine}>
-      <span className="avatar">{initials(entry.author.displayName ?? entry.author.username)}</span>
+    <button className={`entry-card ${readable ? "readable" : "sealed"}`} onClick={entry.isMine ? onEdit : readable && entry.id ? onOpen : undefined} disabled={!readable && !entry.isMine}>
       <span className="entry-main">
-        <span className="entry-author">{entry.author.displayName}{entry.isMine && <em>You</em>}</span>
         <span className="entry-title">
           {entry.title || (entry.status === "submitted" && !unlocked ? "Sealed until Sunday" : label)}
         </span>
+        <span className="entry-author">{entry.author.displayName} · {label}{entry.isMine && <em>you</em>}</span>
       </span>
-      <span className={`status-dot ${entry.status}`} aria-label={label} />
-      <span className="entry-arrow" aria-hidden="true">{readable ? "↗" : "⌁"}</span>
+      <span className="entry-action" aria-hidden="true">{action}</span>
     </button>
   );
 }
 
-function WeekScreen({ onEdit, onRead, refreshKey }: { onEdit: (entry: WeekEntry | undefined) => void; onRead: (id: string) => void; refreshKey: number }) {
+function WeekScreen({ onEdit, onRead, onReadBatch, refreshKey }: { onEdit: (entry: WeekEntry | undefined) => void; onRead: (id: string) => void; onReadBatch: (ids: string[]) => void; refreshKey: number }) {
   const [data, setData] = useState<{ week: WeekInfo; entries: WeekEntry[] } | null>(null);
   const [error, setError] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -156,23 +156,30 @@ function WeekScreen({ onEdit, onRead, refreshKey }: { onEdit: (entry: WeekEntry 
   if (!data) return <Loading />;
   const mine = data.entries.find((entry) => entry.isMine);
   const submitted = data.entries.filter((entry) => entry.status === "submitted").length;
+  const batchIds = data.week.isUnlocked
+    ? data.entries.flatMap((entry) => entry.status === "submitted" && entry.id ? [entry.id] : [])
+    : [];
 
   return (
     <>
       <header className="page-header">
         <div><p className="eyebrow">This week</p><h1>{weekLabel(data.week)}</h1></div>
-        <div className={`seal ${data.week.isUnlocked ? "open" : ""}`} aria-hidden="true">{data.week.isUnlocked ? "◌" : "⌁"}</div>
       </header>
 
       <section className={`reveal-card ${data.week.isUnlocked ? "unlocked" : ""}`}>
         <div>
-          <p className="eyebrow">{data.week.isUnlocked ? "The reading room is open" : "The reading room is sealed"}</p>
+          <p className="eyebrow">{data.week.isUnlocked ? "Reading room open" : "Reading room sealed"}</p>
           <h2>{relativeUnlock(data.week.unlockAt, now)}</h2>
-          <p>{submitted} of {data.entries.length} {data.entries.length === 1 ? "writer has" : "writers have"} submitted.</p>
+          <p>{submitted} of {data.entries.length} {data.entries.length === 1 ? "writer has" : "writers have"} submitted. {data.week.isUnlocked ? "Sunday entries are still welcome until midnight." : "Entries open together on Sunday at 10:00."}</p>
         </div>
-        {!data.week.isUnlocked && (
-          <button className="primary-button" onClick={() => onEdit(mine)}>{mine?.status === "missing" || !mine ? "Start writing" : "Continue writing"}</button>
-        )}
+        <div className="reveal-actions">
+          {batchIds.length > 0 && (
+            <button className="secondary-button" onClick={() => onReadBatch(batchIds)}>Read this week’s batch</button>
+          )}
+          {data.week.isOpen && (
+            <button className="primary-button" onClick={() => onEdit(mine)}>{mine?.status === "missing" || !mine ? "Start writing" : "Continue writing"}</button>
+          )}
+        </div>
       </section>
 
       <section className="section-block">
@@ -187,7 +194,7 @@ function WeekScreen({ onEdit, onRead, refreshKey }: { onEdit: (entry: WeekEntry 
   );
 }
 
-function Editor({ entry, week, onClose, onSaved }: { entry?: WeekEntry; week: WeekInfo; onClose: () => void; onSaved: () => void }) {
+function Editor({ entry, week, onClose, onSaved, onCelebrate }: { entry?: WeekEntry; week: WeekInfo; onClose: () => void; onSaved: () => void; onCelebrate: (kind: CelebrationKind) => void }) {
   const [title, setTitle] = useState(entry?.title ?? "");
   const [markdown, setMarkdown] = useState(entry?.markdown ?? "");
   const [tab, setTab] = useState<"write" | "preview">("write");
@@ -215,6 +222,7 @@ function Editor({ entry, week, onClose, onSaved }: { entry?: WeekEntry; week: We
     setError("");
     try {
       await api.saveEssay({ title, markdown, status });
+      onCelebrate(status === "submitted" ? "submit" : "draft");
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save your essay");
@@ -243,7 +251,17 @@ function Editor({ entry, week, onClose, onSaved }: { entry?: WeekEntry; week: We
       <header className="overlay-header">
         <button className="text-button" onClick={onClose}>← Back</button>
         <p>{formatDate(week.endsOn, { weekday: "long", month: "short", day: "numeric" })} reveal</p>
-        <button className="text-button" onClick={() => save("draft")} disabled={saving}>Save draft</button>
+        <div className="editor-header-actions">
+          <button className="text-button" onClick={() => save("draft")} disabled={saving}>Save draft</button>
+          <button
+            className="primary-button header-submit"
+            aria-label={entry?.status === "submitted" ? "Update submission" : "Submit this week"}
+            onClick={() => save("submitted")}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : entry?.status === "submitted" ? "Update" : "Submit"}
+          </button>
+        </div>
       </header>
       <main className="editor-shell">
         <input className="title-input" aria-label="Essay title" maxLength={160} placeholder="Give this week a title…" value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -263,25 +281,67 @@ function Editor({ entry, week, onClose, onSaved }: { entry?: WeekEntry; week: We
               <button onClick={() => insert("> ", "", "Quote")}>❞</button>
               <button onClick={() => insert("[", "](https://)", "link")}>↗</button>
             </div>
-            <textarea ref={textarea} className="markdown-input" aria-label="Essay in Markdown" placeholder="Begin wherever you are…" value={markdown} onChange={(event) => setMarkdown(event.target.value)} />
+            <MarkdownEditor textareaRef={textarea} value={markdown} onChange={setMarkdown} />
           </>
         ) : markdown ? <Markdown source={markdown} /> : <EmptyState title="Nothing to preview yet" copy="Return to Write and begin your essay." />}
         {error && <p className="form-error" role="alert">{error}</p>}
       </main>
-      <footer className="editor-footer">
-        <p>{entry?.status === "submitted" ? "Already submitted — saving a draft will unsubmit it." : "You can keep editing after submitting, until the reveal."}</p>
-        <button className="primary-button" onClick={() => save("submitted")} disabled={saving}>{saving ? "Saving…" : entry?.status === "submitted" ? "Update submission" : "Submit for Sunday"}</button>
-      </footer>
     </div>
   );
 }
 
-function Reader({ essayId, onClose }: { essayId: string; onClose: () => void }) {
+function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClose: () => void; onCelebrate: (kind: CelebrationKind) => void }) {
+  const [index, setIndex] = useState(0);
   const [essay, setEssay] = useState<FullEssay | null>(null);
   const [error, setError] = useState("");
+  const [heartError, setHeartError] = useState("");
+  const [heartBusy, setHeartBusy] = useState(false);
+  const page = useRef<HTMLDivElement>(null);
+  const essayId = essayIds[index];
+
   useEffect(() => {
-    api.essay(essayId).then((result) => setEssay(result.essay)).catch((cause) => setError(cause.message));
+    let active = true;
+    setEssay(null);
+    setError("");
+    setHeartError("");
+    page.current?.scrollTo({ top: 0 });
+    api.essay(essayId)
+      .then((result) => { if (active) setEssay(result.essay); })
+      .catch((cause) => { if (active) setError(cause.message); });
+    return () => { active = false; };
   }, [essayId]);
+
+  useEffect(() => {
+    function navigate(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft" && index > 0) setIndex((current) => current - 1);
+      if (event.key === "ArrowRight" && index < essayIds.length - 1) setIndex((current) => current + 1);
+    }
+    window.addEventListener("keydown", navigate);
+    return () => window.removeEventListener("keydown", navigate);
+  }, [essayIds.length, index]);
+
+  async function toggleHeart() {
+    if (!essay || essay.isMine || heartBusy) return;
+    const next = !essay.heartedByMe;
+    setHeartBusy(true);
+    setHeartError("");
+    try {
+      const result = await api.setEssayHeart(essay.id, next);
+      setEssay((current) => current && current.id === essay.id
+        ? { ...current, heartedByMe: result.hearted, heartCount: result.heartCount }
+        : current);
+      if (result.hearted) onCelebrate("heart");
+    } catch (cause) {
+      setHeartError(cause instanceof Error ? cause.message : "Could not save your heart");
+    } finally {
+      setHeartBusy(false);
+    }
+  }
+
+  function next() {
+    if (index === essayIds.length - 1) onClose();
+    else setIndex((current) => current + 1);
+  }
 
   function download() {
     if (!essay) return;
@@ -294,10 +354,10 @@ function Reader({ essayId, onClose }: { essayId: string; onClose: () => void }) 
   }
 
   return (
-    <div className="overlay-page reader-page">
+    <div className="overlay-page reader-page" ref={page}>
       <header className="overlay-header">
         <button className="text-button" onClick={onClose}>← Back</button>
-        <p>Reading room</p>
+        <p>{essayIds.length > 1 ? `${index + 1} of ${essayIds.length}` : "Reading room"}</p>
         <button className="text-button" onClick={download} disabled={!essay}>↓ .md</button>
       </header>
       {error ? <EmptyState title="Couldn’t open this essay" copy={error} /> : !essay ? <Loading /> : (
@@ -306,6 +366,26 @@ function Reader({ essayId, onClose }: { essayId: string; onClose: () => void }) 
           <h1>{essay.title}</h1>
           <div className="byline"><span className="avatar">{initials(essay.author.displayName)}</span><span>By {essay.author.displayName}<small>{wordCount(essay.markdown)} words</small></span></div>
           <Markdown source={essay.markdown} />
+          <section className="reader-response" aria-label="Essay response">
+            <button
+              className={`heart-button ${essay.heartedByMe ? "hearted" : ""}`}
+              aria-pressed={essay.heartedByMe}
+              disabled={essay.isMine || heartBusy}
+              onClick={toggleHeart}
+            >
+              <span aria-hidden="true">{essay.heartedByMe ? "♥" : "♡"}</span>
+              {essay.isMine ? "Your essay" : essay.heartedByMe ? "Loved" : "Show some love"}
+              {essay.heartCount > 0 && <small>{essay.heartCount}</small>}
+            </button>
+            {heartError && <p className="reader-response-error" role="alert">{heartError}</p>}
+          </section>
+          {essayIds.length > 1 && (
+            <nav className="reader-batch-nav" aria-label="Weekly essay batch">
+              <button className="text-button" disabled={index === 0} onClick={() => setIndex((current) => current - 1)}>← Previous</button>
+              <span>Essay {index + 1} of {essayIds.length}</span>
+              <button className="primary-button" onClick={next}>{index === essayIds.length - 1 ? "Finish batch" : "Next essay →"}</button>
+            </nav>
+          )}
         </main>
       )}
     </div>
@@ -315,6 +395,7 @@ function Reader({ essayId, onClose }: { essayId: string; onClose: () => void }) 
 function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
   const [entries, setEntries] = useState<ArchiveEntry[] | null>(null);
   const [error, setError] = useState("");
+  const [openWeek, setOpenWeek] = useState<string | null>(null);
   useEffect(() => { api.archive().then((data) => setEntries(data.entries)).catch((cause) => setError(cause.message)); }, []);
   const grouped = useMemo(() => {
     const groups = new Map<string, ArchiveEntry[]>();
@@ -327,15 +408,30 @@ function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
     <>
       <header className="page-header"><div><p className="eyebrow">The library</p><h1>Past essays</h1></div><span className="archive-count">{entries.length}</span></header>
       {entries.length === 0 ? <EmptyState title="The shelves are quiet" copy="Submitted essays appear here after their first Sunday reveal." /> : (
-        <div className="archive-groups">
+        <div className="archive-roadmap">
           {[...grouped.entries()].map(([key, items]) => (
-            <section className="archive-group" key={key}>
-              <p className="archive-date">Week of {formatDate(key, { month: "long", day: "numeric", year: "numeric" })}</p>
-              {items.map((entry) => (
-                <button className="archive-row" key={entry.id} onClick={() => onRead(entry.id)}>
-                  <span><strong>{entry.title}</strong><small>{entry.author.displayName}</small></span><span>Read ↗</span>
-                </button>
-              ))}
+            <section className={`archive-week ${openWeek === key ? "open" : ""}`} key={key}>
+              <button
+                className="archive-week-toggle"
+                aria-expanded={openWeek === key}
+                onClick={() => setOpenWeek((current) => current === key ? null : key)}
+              >
+                <span className="roadmap-dot" aria-hidden="true" />
+                <span>
+                  <strong>Week of {formatDate(key, { month: "long", day: "numeric", year: "numeric" })}</strong>
+                  <small>{items.length} {items.length === 1 ? "submission" : "submissions"}</small>
+                </span>
+                <span aria-hidden="true">{openWeek === key ? "−" : "+"}</span>
+              </button>
+              {openWeek === key && (
+                <div className="archive-week-entries">
+                  {items.map((entry) => (
+                    <button className="archive-row" key={entry.id} onClick={() => onRead(entry.id)}>
+                      <span><strong>{entry.title}</strong><small>Submitted by {entry.author.displayName}</small></span><span>Read ↗</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </section>
           ))}
         </div>
@@ -348,10 +444,11 @@ function ProfileScreen({ user, rules, onLogout }: { user: User; rules: Rules; on
   return (
     <>
       <header className="page-header"><div><p className="eyebrow">Your corner</p><h1>Profile</h1></div></header>
-      <section className="profile-card"><span className="avatar large">{initials(user.displayName)}</span><div><h2>{user.displayName}</h2><p>@{user.username}</p></div></section>
+      <section className="profile-card"><div><h2>{user.displayName}</h2><p>@{user.username}</p></div></section>
       <section className="settings-card">
         <h2>Circle rules</h2>
         <div><span>Reveal</span><strong>{rules.unlockDay} at {rules.unlockTime}</strong></div>
+        <div><span>Submissions</span><strong>Until Sunday ends</strong></div>
         <div><span>Timezone</span><strong>{rules.timeZone}</strong></div>
         <div><span>Format</span><strong>Markdown · .md</strong></div>
       </section>
@@ -363,9 +460,9 @@ function ProfileScreen({ user, rules, onLogout }: { user: User; rules: Rules; on
 function BottomNav({ screen, onChange }: { screen: Screen; onChange: (screen: Screen) => void }) {
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
-      <button className={screen === "week" ? "active" : ""} onClick={() => onChange("week")}><span>◫</span>This week</button>
-      <button className={screen === "archive" ? "active" : ""} onClick={() => onChange("archive")}><span>▤</span>Archive</button>
-      <button className={screen === "profile" ? "active" : ""} onClick={() => onChange("profile")}><span>○</span>Profile</button>
+      <button className={screen === "week" ? "active" : ""} onClick={() => onChange("week")}>This week</button>
+      <button className={screen === "archive" ? "active" : ""} onClick={() => onChange("archive")}>Archive</button>
+      <button className={screen === "profile" ? "active" : ""} onClick={() => onChange("profile")}>Profile</button>
     </nav>
   );
 }
@@ -380,9 +477,11 @@ export default function App() {
   const [currentWeek, setCurrentWeek] = useState<WeekInfo | null>(null);
   const [screen, setScreen] = useState<Screen>("week");
   const [editing, setEditing] = useState<WeekEntry | undefined | null>(null);
-  const [reading, setReading] = useState<string | null>(null);
+  const [reading, setReading] = useState<string[] | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [notice, setNotice] = useState("");
+  const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
+  const celebrationId = useRef(0);
 
   useEffect(() => {
     api.session()
@@ -397,21 +496,33 @@ export default function App() {
     try { await api.logout(); } finally { setUser(null); setScreen("week"); }
   }
 
+  function celebrate(kind: CelebrationKind) {
+    celebrationId.current += 1;
+    setCelebration({ id: celebrationId.current, kind });
+  }
+
   if (loading) return <Loading />;
   if (!user) return <AuthScreen onAuthenticated={(nextUser) => { setUser(nextUser); setRefreshKey((key) => key + 1); }} />;
 
   return (
     <div className="app-shell">
-      <div className="top-brand"><strong>Essayz<span>.</span></strong><small>Private circle</small></div>
+      <header className="top-brand"><strong>Essayz</strong><BottomNav screen={screen} onChange={setScreen} /></header>
       <main className="content-shell">
-        {screen === "week" && <WeekScreen refreshKey={refreshKey} onEdit={(entry) => setEditing(entry ?? undefined)} onRead={setReading} />}
-        {screen === "archive" && <ArchiveScreen onRead={setReading} />}
+        {screen === "week" && <WeekScreen refreshKey={refreshKey} onEdit={(entry) => setEditing(entry ?? undefined)} onRead={(id) => setReading([id])} onReadBatch={setReading} />}
+        {screen === "archive" && <ArchiveScreen onRead={(id) => setReading([id])} />}
         {screen === "profile" && <ProfileScreen user={user} rules={rules} onLogout={logout} />}
       </main>
-      <BottomNav screen={screen} onChange={setScreen} />
-      {editing !== null && currentWeek && <Editor entry={editing} week={currentWeek} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setRefreshKey((key) => key + 1); setNotice("Your essay is safely saved."); }} />}
-      {reading && <Reader essayId={reading} onClose={() => setReading(null)} />}
+      <footer className="site-footer">A private place to write together.</footer>
+      {editing !== null && currentWeek && <Editor entry={editing} week={currentWeek} onClose={() => setEditing(null)} onCelebrate={celebrate} onSaved={() => { setEditing(null); setRefreshKey((key) => key + 1); setNotice("Your essay is safely saved."); }} />}
+      {reading && <Reader essayIds={reading} onClose={() => setReading(null)} onCelebrate={celebrate} />}
       {notice && <Notice message={notice} onClose={() => setNotice("")} />}
+      {celebration && (
+        <Confetti
+          key={celebration.id}
+          kind={celebration.kind}
+          onComplete={() => setCelebration((current) => current?.id === celebration.id ? null : current)}
+        />
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@ A private, mobile-first weekly writing circle. Members write or import Markdown 
 - One Markdown draft per member per week
 - Write/preview modes, a small Markdown toolbar, `.md` import, and `.md` export
 - Server-enforced privacy before the reveal (other people’s Markdown never reaches the browser early)
-- A shared Sunday reading room and an archive of earlier weeks
+- A guided Sunday reading batch with per-reader hearts, plus a week-by-week archive roadmap
 - DST-aware weekly scheduling; no cron trigger is required
 - Responsive UI and a web-app manifest for adding Essayz to a phone’s home screen
 - A Cloudflare Worker, static assets, and D1 database in one deployment
@@ -70,6 +70,14 @@ bun run build
 
 Wrangler prints the resulting `workers.dev` address. A custom domain can be connected later from the Cloudflare dashboard.
 
+For subsequent deployments, run the complete verified deployment workflow:
+
+```bash
+just deploy
+```
+
+This installs the locked dependencies, runs the tests and production build, applies pending remote D1 migrations, and deploys the generated Worker and frontend assets.
+
 ## Configuration
 
 Non-secret settings live under `vars` in `wrangler.jsonc`:
@@ -78,7 +86,6 @@ Non-secret settings live under `vars` in `wrangler.jsonc`:
 | --- | --- | --- |
 | `APP_TIME_ZONE` | `Europe/Paris` | IANA timezone used for week boundaries and reveal time |
 | `SESSION_DAYS` | `30` | Sign-in lifetime |
-| `PBKDF2_ITERATIONS` | `210000` | Password derivation work factor |
 
 The reveal is calculated on every authorized request as Sunday 10:00 in `APP_TIME_ZONE`. This avoids cron delays and correctly follows daylight-saving changes.
 
@@ -86,8 +93,8 @@ The reveal is calculated on every authorized request as Sunday 10:00 in `APP_TIM
 
 - Each registered member can create one entry each week.
 - A draft is visible only to its author.
-- “Submitted” means eligible for the reveal; members can update or return it to draft before Sunday at 10:00.
-- At the reveal, submitted essays become readable by all members and editing closes.
-- Unsubmitted drafts remain private, including after the deadline.
+- “Submitted” means eligible for the reveal; members can update or return it to draft until Sunday ends.
+- At Sunday 10:00, submitted essays become readable by all members. Later Sunday submissions become readable immediately and remain part of that same week.
+- Editing closes when the next writing week begins at local Monday midnight. Unsubmitted drafts remain private.
 
 The schema keeps authors and weekly entries separate, so a future designated-author rotation can be added without migrating existing essays.

@@ -4,8 +4,8 @@
   "description": "Write privately. Read together on Sunday.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4f0e8",
-  "theme_color": "#f4f0e8",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/mark.svg",

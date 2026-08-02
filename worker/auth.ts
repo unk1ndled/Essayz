@@ -1,7 +1,6 @@
 export interface AuthEnv {
   DB: D1Database;
   SESSION_DAYS: string;
-  PBKDF2_ITERATIONS: string;
 }
 
 export interface SessionUser {
@@ -20,6 +19,8 @@ interface UserRow {
 }
 
 const encoder = new TextEncoder();
+
+export const PASSWORD_HASH_ITERATIONS = 100_000;
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";

@@ -9,7 +9,9 @@ export interface WeekInfo {
   startsOn: string;
   endsOn: string;
   unlockAt: string;
+  closesAt: string;
   isUnlocked: boolean;
+  isOpen: boolean;
 }
 
 export interface Rules {
@@ -47,4 +49,6 @@ export interface FullEssay {
   submittedAt: string | null;
   author: User;
   isMine: boolean;
+  heartCount: number;
+  heartedByMe: boolean;
 }

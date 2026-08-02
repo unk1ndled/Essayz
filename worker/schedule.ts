@@ -3,7 +3,9 @@ export interface WeekInfo {
   startsOn: string;
   endsOn: string;
   unlockAt: string;
+  closesAt: string;
   isUnlocked: boolean;
+  isOpen: boolean;
 }
 
 interface DateParts {
@@ -105,11 +107,21 @@ export function weekForKey(key: string, now: Date, timeZone: string): WeekInfo {
 
   const sunday = new Date(monday);
   sunday.setUTCDate(monday.getUTCDate() + 6);
+  const nextMonday = new Date(monday);
+  nextMonday.setUTCDate(monday.getUTCDate() + 7);
   const unlock = localDateTimeToUtc(
     sunday.getUTCFullYear(),
     sunday.getUTCMonth() + 1,
     sunday.getUTCDate(),
     10,
+    0,
+    timeZone,
+  );
+  const close = localDateTimeToUtc(
+    nextMonday.getUTCFullYear(),
+    nextMonday.getUTCMonth() + 1,
+    nextMonday.getUTCDate(),
+    0,
     0,
     timeZone,
   );
@@ -119,6 +131,8 @@ export function weekForKey(key: string, now: Date, timeZone: string): WeekInfo {
     startsOn: key,
     endsOn: dateKey(sunday),
     unlockAt: unlock.toISOString(),
+    closesAt: close.toISOString(),
     isUnlocked: now.getTime() >= unlock.getTime(),
+    isOpen: now.getTime() < close.getTime(),
   };
 }
