@@ -211,11 +211,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 }
 
 @media (max-width: 620px) {
-  .top-brand { align-items: center; }
+  .top-brand { align-items: center; justify-content: flex-start; }
   .top-brand strong { padding-block: 18px; }
-  .bottom-nav { gap: 13px; }
-  .bottom-nav button { padding-block: 18px; font-size: 13px; }
+  .bottom-nav { position: fixed; z-index: 25; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(420px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); padding: 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; border: 1px solid var(--border); background: color-mix(in srgb, var(--background) 94%, transparent); box-shadow: 0 10px 30px color-mix(in srgb, var(--text) 14%, transparent); backdrop-filter: blur(12px); }
+  .bottom-nav button { min-height: 44px; padding: 7px 8px; border: 0; color: var(--muted); font-size: 13px; }
+  .bottom-nav button:hover { color: var(--text); }
+  .bottom-nav button.active { border: 0; color: var(--background); background: var(--text); }
   .content-shell { padding-top: 38px; }
+  .site-footer { padding-bottom: calc(108px + env(safe-area-inset-bottom)); }
   .reveal-card { align-items: stretch; flex-direction: column; gap: 18px; }
   .reveal-actions, .reveal-card .primary-button, .reveal-card .secondary-button { width: 100%; }
   .auth-shell { padding-top: 38px; }

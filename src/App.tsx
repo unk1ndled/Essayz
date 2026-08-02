@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiFailure } from "./api";
 import { Confetti, type CelebrationKind } from "./Confetti";
-import { Markdown } from "./Markdown";
-import { MarkdownEditor } from "./MarkdownEditor";
 import type { ArchiveEntry, FullEssay, Rules, User, WeekEntry, WeekInfo } from "./types";
+
+const Markdown = lazy(() => import("./Markdown").then((module) => ({ default: module.Markdown })));
+const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 
 type Screen = "week" | "archive" | "profile";
 type AuthMode = "login" | "register";
@@ -202,6 +203,7 @@ function Editor({ entry, week, onClose, onSaved, onCelebrate }: { entry?: WeekEn
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const deferredMarkdown = useDeferredValue(markdown);
 
   function insert(before: string, after = before, fallback = "text") {
     const field = textarea.current;
@@ -265,7 +267,7 @@ function Editor({ entry, week, onClose, onSaved, onCelebrate }: { entry?: WeekEn
       </header>
       <main className="editor-shell">
         <input className="title-input" aria-label="Essay title" maxLength={160} placeholder="Give this week a title…" value={title} onChange={(event) => setTitle(event.target.value)} />
-        <div className="editor-meta"><span>{wordCount(markdown)} words</span><span>Markdown</span></div>
+        <div className="editor-meta"><span>{wordCount(deferredMarkdown)} words</span><span>Markdown</span></div>
         <div className="editor-tabs">
           <button className={tab === "write" ? "active" : ""} onClick={() => setTab("write")}>Write</button>
           <button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}>Preview</button>
@@ -281,9 +283,13 @@ function Editor({ entry, week, onClose, onSaved, onCelebrate }: { entry?: WeekEn
               <button onClick={() => insert("> ", "", "Quote")}>❞</button>
               <button onClick={() => insert("[", "](https://)", "link")}>↗</button>
             </div>
-            <MarkdownEditor textareaRef={textarea} value={markdown} onChange={setMarkdown} />
+            <Suspense fallback={<Loading />}>
+              <MarkdownEditor textareaRef={textarea} value={markdown} onChange={setMarkdown} />
+            </Suspense>
           </>
-        ) : markdown ? <Markdown source={markdown} /> : <EmptyState title="Nothing to preview yet" copy="Return to Write and begin your essay." />}
+        ) : markdown ? (
+          <Suspense fallback={<Loading />}><Markdown source={markdown} /></Suspense>
+        ) : <EmptyState title="Nothing to preview yet" copy="Return to Write and begin your essay." />}
         {error && <p className="form-error" role="alert">{error}</p>}
       </main>
     </div>
@@ -365,7 +371,7 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
           <p className="eyebrow">{formatDate(essay.weekKey, { month: "long", day: "numeric", year: "numeric" })}</p>
           <h1>{essay.title}</h1>
           <div className="byline"><span className="avatar">{initials(essay.author.displayName)}</span><span>By {essay.author.displayName}<small>{wordCount(essay.markdown)} words</small></span></div>
-          <Markdown source={essay.markdown} />
+          <Suspense fallback={<Loading />}><Markdown source={essay.markdown} /></Suspense>
           <section className="reader-response" aria-label="Essay response">
             <button
               className={`heart-button ${essay.heartedByMe ? "hearted" : ""}`}

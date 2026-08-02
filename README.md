@@ -76,7 +76,7 @@ For subsequent deployments, run the complete verified deployment workflow:
 just deploy
 ```
 
-This installs the locked dependencies, runs the tests and production build, applies pending remote D1 migrations, and deploys the generated Worker and frontend assets.
+This installs the locked dependencies, runs the tests and production build, applies pending remote D1 migrations, and deploys the generated Worker and frontend assets. The migration check retries brief Cloudflare API failures up to three times, but deployment still stops if the database cannot be safely updated.
 
 ## Configuration
 

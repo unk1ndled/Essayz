@@ -12,14 +12,6 @@ import {
 } from "./auth";
 import { weekForDate, weekForKey } from "./schedule";
 
-interface Env {
-  DB: D1Database;
-  ASSETS: Fetcher;
-  INVITE_CODE?: string;
-  APP_TIME_ZONE: string;
-  SESSION_DAYS: string;
-}
-
 interface EssayRow {
   id: string;
   user_id: string;
@@ -35,8 +27,9 @@ interface EssayRow {
   hearted_by_viewer?: number;
 }
 
-interface WeekRow extends Omit<EssayRow, "status"> {
+interface WeekRow extends Omit<EssayRow, "status" | "markdown"> {
   status: "draft" | "submitted" | "missing";
+  markdown: string | null;
 }
 
 class ApiError extends Error {
@@ -180,7 +173,7 @@ async function session(request: Request, env: Env): Promise<Response> {
   return json({ user, rules: publicRules(env), week });
 }
 
-function readableEssay(row: EssayRow, viewerId: string, isUnlocked: boolean) {
+function readableEssay(row: EssayRow | WeekRow, viewerId: string, isUnlocked: boolean) {
   const isMine = row.user_id === viewerId;
   const canRead = isMine || (isUnlocked && row.status === "submitted");
   return {
@@ -204,14 +197,15 @@ async function currentWeek(request: Request, env: Env): Promise<Response> {
   const week = weekForDate(new Date(), appTimeZone(env));
   const results = await env.DB.prepare(
     `SELECT users.id AS user_id, users.username, users.display_name,
-            essays.id, essays.week_key, essays.title, essays.markdown,
+            essays.id, essays.week_key, essays.title,
+            CASE WHEN users.id = ? THEN essays.markdown ELSE NULL END AS markdown,
             COALESCE(essays.status, 'missing') AS status,
             essays.submitted_at, essays.updated_at
      FROM users
      LEFT JOIN essays ON essays.user_id = users.id AND essays.week_key = ?
      ORDER BY users.created_at ASC`,
   )
-    .bind(week.key)
+    .bind(user.id, week.key)
     .all<WeekRow>();
 
   const entries = results.results.map((row) => {
@@ -231,7 +225,7 @@ async function currentWeek(request: Request, env: Env): Promise<Response> {
         updatedAt: null,
       };
     }
-    return readableEssay(row as EssayRow, user.id, week.isUnlocked);
+    return readableEssay(row, user.id, week.isUnlocked);
   });
 
   return json({ week, entries });

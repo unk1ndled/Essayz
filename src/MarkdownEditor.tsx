@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useDeferredValue, useLayoutEffect, useMemo, type RefObject } from "react";
 import { highlightMarkdown } from "./markdownHighlight";
 
 type MarkdownEditorProps = {
@@ -8,6 +8,9 @@ type MarkdownEditorProps = {
 };
 
 export function MarkdownEditor({ textareaRef, value, onChange }: MarkdownEditorProps) {
+  const highlightedValue = useDeferredValue(value);
+  const tokens = useMemo(() => highlightMarkdown(highlightedValue), [highlightedValue]);
+
   useLayoutEffect(() => {
     const field = textareaRef.current;
     if (!field) return;
@@ -21,10 +24,10 @@ export function MarkdownEditor({ textareaRef, value, onChange }: MarkdownEditorP
   return (
     <div className="markdown-editor">
       <pre className="markdown-highlight" aria-hidden="true">
-        {highlightMarkdown(value).map((token, index) => (
+        {tokens.map((token, index) => (
           <span className={`markdown-${token.kind}`} key={`${index}-${token.kind}`}>{token.value}</span>
         ))}
-        {value.endsWith("\n") ? "\n" : null}
+        {highlightedValue.endsWith("\n") ? "\n" : null}
       </pre>
       <textarea
         ref={textareaRef}

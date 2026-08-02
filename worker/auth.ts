@@ -1,7 +1,4 @@
-export interface AuthEnv {
-  DB: D1Database;
-  SESSION_DAYS: string;
-}
+export type AuthEnv = Pick<Env, "DB" | "SESSION_DAYS">;
 
 export interface SessionUser {
   id: string;
