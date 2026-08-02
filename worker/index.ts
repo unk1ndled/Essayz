@@ -26,6 +26,7 @@ interface EssayRow {
   username?: string;
   display_name?: string;
   avatar_url?: string | null;
+  member_count?: number;
   heart_count?: number;
   hearted_by_viewer?: number;
 }
@@ -384,7 +385,11 @@ async function archive(request: Request, env: Env): Promise<Response> {
   const currentClause = current.isUnlocked ? "OR essays.week_key = ?" : "";
   const query = `SELECT essays.id, essays.user_id, essays.week_key, essays.title,
                         essays.submitted_at, essays.updated_at,
-                        users.username, users.display_name, users.avatar_url
+                        users.username, users.display_name, users.avatar_url,
+                        (
+                          SELECT COUNT(*) FROM users AS week_members
+                          WHERE datetime(week_members.created_at) < datetime(essays.week_key, '+7 days')
+                        ) AS member_count
                  FROM essays JOIN users ON users.id = essays.user_id
                  WHERE essays.status = 'submitted'
                    AND (essays.week_key < ? ${currentClause})
@@ -407,6 +412,7 @@ async function archive(request: Request, env: Env): Promise<Response> {
       },
       isMine: row.user_id === user.id,
       submittedAt: row.submitted_at,
+      memberCount: row.member_count ?? 0,
     })),
   });
 }

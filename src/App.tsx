@@ -216,6 +216,25 @@ function WeekScreen({ onEdit, onRead, onReadBatch, refreshKey }: { onEdit: (entr
   );
 }
 
+function ReadingPet() {
+  const [napping, setNapping] = useState(false);
+  const [dead, setDead] = useState(false);
+  const petAction = dead ? "The reading cat is dead" : napping ? "Wake the reading cat" : "Let the reading cat nap";
+  return (
+    <button
+      type="button"
+      className={`reading-pet ${napping ? "napping" : ""} ${dead ? "dead" : ""}`}
+      onClick={(event) => { if (!dead && event.detail < 2) setNapping((current) => !current); }}
+      onDoubleClick={() => { setDead(true); setNapping(false); }}
+      aria-label={petAction}
+      title={dead ? "Rest in pixels." : `${petAction}. Double-click at your own risk.`}
+    >
+      <img src={napping ? "/pets/cat-sleep.gif" : "/pets/cat-walk.gif"} alt="" aria-hidden="true" />
+      <span className="pet-grave" aria-hidden="true">RIP</span>
+    </button>
+  );
+}
+
 function Editor({ entry, week, onClose, onSaved, onCelebrate }: { entry?: WeekEntry; week: WeekInfo; onClose: () => void; onSaved: () => void; onCelebrate: (kind: CelebrationKind) => void }) {
   const [title, setTitle] = useState(entry?.title ?? "");
   const [markdown, setMarkdown] = useState(entry?.markdown ?? "");
@@ -491,13 +510,14 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
               <button className="primary-button" onClick={next}>{index === essayIds.length - 1 ? "Finish batch" : "Next essay →"}</button>
             </nav>
           )}
+          <ReadingPet />
         </main>
       )}
     </div>
   );
 }
 
-function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
+function ArchiveScreen({ onRead, onReadBatch }: { onRead: (id: string) => void; onReadBatch: (ids: string[]) => void }) {
   const [entries, setEntries] = useState<ArchiveEntry[] | null>(null);
   const [error, setError] = useState("");
   const [openWeek, setOpenWeek] = useState<string | null>(null);
@@ -516,18 +536,33 @@ function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
         <div className="archive-roadmap">
           {[...grouped.entries()].map(([key, items]) => (
             <section className={`archive-week ${openWeek === key ? "open" : ""}`} key={key}>
-              <button
-                className="archive-week-toggle"
-                aria-expanded={openWeek === key}
-                onClick={() => setOpenWeek((current) => current === key ? null : key)}
-              >
-                <span className="roadmap-dot" aria-hidden="true" />
-                <span>
-                  <strong>Week of {formatDate(key, { month: "long", day: "numeric", year: "numeric" })}</strong>
-                  <small>{items.length} {items.length === 1 ? "submission" : "submissions"}</small>
-                </span>
-                <span aria-hidden="true">{openWeek === key ? "−" : "+"}</span>
-              </button>
+              <div className="archive-week-header">
+                <button
+                  className="archive-week-toggle"
+                  aria-expanded={openWeek === key}
+                  onClick={() => setOpenWeek((current) => current === key ? null : key)}
+                >
+                  <span className="roadmap-dot" aria-hidden="true" />
+                  <span>
+                    <span className="archive-week-title">
+                      <strong>Week of {formatDate(key, { month: "long", day: "numeric", year: "numeric" })}</strong>
+                      {items.length === items[0]?.memberCount && (
+                        <span
+                          className="archive-complete-check"
+                          role="img"
+                          aria-label="Good job — everyone did their part"
+                          title="Good job — everyone did their part"
+                        >✓</span>
+                      )}
+                    </span>
+                    <small>{items.length} {items.length === 1 ? "submission" : "submissions"}</small>
+                  </span>
+                  <span aria-hidden="true">{openWeek === key ? "−" : "+"}</span>
+                </button>
+                <button className="text-button archive-batch-button" onClick={() => onReadBatch(items.map((entry) => entry.id))}>
+                  <span className="archive-batch-label">Read submissions</span><span className="archive-batch-label-mobile">Read all</span> →
+                </button>
+              </div>
               {openWeek === key && (
                 <div className="archive-week-entries">
                   {items.map((entry) => (
@@ -570,6 +605,22 @@ function ProfileScreen({ user, rules, onLogout, onUserUpdated }: { user: User; r
       setProfileMessage("Saved.");
     } catch (cause) {
       setProfileMessage(cause instanceof Error ? cause.message : "Could not update your profile");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function useInitials() {
+    setProfileBusy(true);
+    setProfileMessage("");
+    try {
+      const result = await api.updateProfile(displayName, "");
+      setDisplayName(result.user.displayName);
+      setAvatarUrl("");
+      onUserUpdated(result.user);
+      setProfileMessage("Saved.");
+    } catch (cause) {
+      setProfileMessage(cause instanceof Error ? cause.message : "Could not remove your profile photo");
     } finally {
       setProfileBusy(false);
     }
@@ -618,7 +669,7 @@ function ProfileScreen({ user, rules, onLogout, onUserUpdated }: { user: User; r
             </div>
             <div className="profile-form-actions">
               <button className="primary-button" disabled={profileBusy || (displayName.trim() === user.displayName && avatarUrl.trim() === (user.avatarUrl ?? ""))}>{profileBusy ? "Saving…" : "Save changes"}</button>
-              {avatarUrl && <button className="text-button" type="button" onClick={() => { setAvatarUrl(""); setProfileMessage(""); }}>Use initials instead</button>}
+              {avatarUrl && <button className="text-button" type="button" disabled={profileBusy} onClick={useInitials}>Use initials instead</button>}
               {profileMessage && <span className={profileMessage === "Saved." ? "profile-status" : "profile-error"} role="status">{profileMessage}</span>}
             </div>
           </form>
@@ -685,6 +736,7 @@ export default function App() {
   const [editing, setEditing] = useState<WeekEntry | undefined | null>(null);
   const [reading, setReading] = useState<string[] | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [randomEssayBusy, setRandomEssayBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite")?.trim() ?? "");
@@ -720,15 +772,36 @@ export default function App() {
     setCelebration({ id: celebrationId.current, kind });
   }
 
+  async function openRandomEssay() {
+    if (randomEssayBusy) return;
+    setRandomEssayBusy(true);
+    try {
+      const { entries } = await api.archive();
+      if (entries.length === 0) {
+        setNotice("The archive does not have any essays yet.");
+        return;
+      }
+      const entry = entries[Math.floor(Math.random() * entries.length)];
+      setReading([entry.id]);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Could not open a random essay");
+    } finally {
+      setRandomEssayBusy(false);
+    }
+  }
+
   if (loading) return <Loading />;
   if (!user) return <AuthScreen inviteToken={inviteToken} onAuthenticated={(nextUser) => { clearInvitation(); setUser(nextUser); setRefreshKey((key) => key + 1); }} />;
 
   return (
     <div className="app-shell">
-      <header className="top-brand"><strong>Essayz</strong><BottomNav screen={screen} onChange={setScreen} /></header>
+      <header className="top-brand">
+        <button className="brand-button" onClick={openRandomEssay} disabled={randomEssayBusy} title="Open a random essay">Essayz</button>
+        <BottomNav screen={screen} onChange={setScreen} />
+      </header>
       <main className="content-shell">
         {screen === "week" && <WeekScreen refreshKey={refreshKey} onEdit={(entry) => setEditing(entry ?? undefined)} onRead={(id) => setReading([id])} onReadBatch={setReading} />}
-        {screen === "archive" && <ArchiveScreen onRead={(id) => setReading([id])} />}
+        {screen === "archive" && <ArchiveScreen onRead={(id) => setReading([id])} onReadBatch={setReading} />}
         {screen === "profile" && <ProfileScreen user={user} rules={rules} onLogout={logout} onUserUpdated={setUser} />}
       </main>
       <footer className="site-footer">A private place to write together.</footer>

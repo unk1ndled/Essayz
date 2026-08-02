@@ -47,6 +47,7 @@ export interface ArchiveEntry {
   author: User;
   isMine: boolean;
   submittedAt: string;
+  memberCount: number;
 }
 
 export interface FullEssay {

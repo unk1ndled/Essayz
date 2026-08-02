@@ -1,4 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Essayz</title>
   <rect width="64" height="64" fill="#ffffff"/>
-  <path d="M17 14h30v6H24v14h20v6H24v14h24v6H17V14Z" fill="#222222"/>
+  <g fill="#222222">
+    <path d="M13 14 24 6l8 7-5 7v8l7-5v11l-7 5v8l6 7-11 7-10-9 6-7V20Z"/>
+    <path d="M27 13 38 7h15l-5 14h-7l3-7h-8l-9 8Zm0 15h21l-6 11h-7l3-5H27Zm0 19h14l10-8-3 16H34l-7-6Z"/>
+    <path d="m18 9 5-4 5 4-5 4Zm-5 43 5-5 6 6-5 6Z"/>
+  </g>
 </svg>
