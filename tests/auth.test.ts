@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   PASSWORD_HASH_ITERATIONS,
+  hashInviteToken,
   passwordRecord,
+  randomToken,
   verifyPassword,
   type UserRow,
 } from "../worker/auth";
@@ -22,5 +24,17 @@ describe("password hashing", () => {
     expect(PASSWORD_HASH_ITERATIONS).toBe(100_000);
     await expect(verifyPassword(password, user)).resolves.toBe(true);
     await expect(verifyPassword("wrong-password", user)).resolves.toBe(false);
+  });
+});
+
+describe("invitation tokens", () => {
+  it("creates URL-safe, high-entropy tokens and hashes them deterministically", async () => {
+    const first = randomToken();
+    const second = randomToken();
+
+    expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(second).not.toBe(first);
+    await expect(hashInviteToken(first)).resolves.toBe(await hashInviteToken(first));
+    await expect(hashInviteToken(second)).resolves.not.toBe(await hashInviteToken(first));
   });
 });

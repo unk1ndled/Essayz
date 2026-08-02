@@ -4,7 +4,7 @@ A private, mobile-first weekly writing circle. Members write or import Markdown 
 
 ## What is included
 
-- Invite-only accounts with PBKDF2-hashed passwords and secure cookie sessions
+- Member-generated, single-use invitation links with PBKDF2-hashed passwords and secure cookie sessions
 - One Markdown draft per member per week
 - Write/preview modes, a small Markdown toolbar, `.md` import, and `.md` export
 - Server-enforced privacy before the reveal (other people’s Markdown never reaches the browser early)
@@ -19,12 +19,11 @@ Requirements: [Bun](https://bun.sh/), Node.js 22 or newer for Cloudflare's local
 
 ```bash
 bun install
-cp .dev.vars.example .dev.vars
 bun run db:migrate:local
 bun run dev
 ```
 
-The default local invite code comes from `.dev.vars`. Replace its example value before inviting anyone. Local D1 data lives under `.wrangler/`.
+Local D1 data lives under `.wrangler/`. Once a member account exists, that member can generate a seven-day invitation link from Profile; each link admits one new writer.
 
 Useful checks:
 
@@ -56,13 +55,7 @@ bun run build
    bun run db:migrate:remote
    ```
 
-5. Store a long, private registration code. Share this only with members of the circle:
-
-   ```bash
-   bunx wrangler secret put INVITE_CODE
-   ```
-
-6. Deploy the Worker and frontend:
+5. Deploy the Worker and frontend:
 
    ```bash
    bun run deploy

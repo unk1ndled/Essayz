@@ -27,7 +27,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function randomToken(byteLength = 32): string {
+export function randomToken(byteLength = 32): string {
   return toBase64(crypto.getRandomValues(new Uint8Array(byteLength)))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
@@ -81,16 +81,8 @@ function cookieValue(request: Request, name: string): string | null {
   return null;
 }
 
-export async function hashInviteCode(value: string): Promise<string> {
+export async function hashInviteToken(value: string): Promise<string> {
   return sha256(`invite:${value}`);
-}
-
-export async function inviteCodeMatches(value: string, expected: string): Promise<boolean> {
-  const [candidateHash, expectedHash] = await Promise.all([
-    hashInviteCode(value),
-    hashInviteCode(expected),
-  ]);
-  return equalStrings(candidateHash, expectedHash);
 }
 
 export async function passwordRecord(

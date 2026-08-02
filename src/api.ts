@@ -33,13 +33,15 @@ export const api = {
     username: string;
     displayName: string;
     password: string;
-    inviteCode: string;
+    inviteToken: string;
   }) =>
     request<{ user: User }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(details),
     }),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  createInvitation: () =>
+    request<{ inviteUrl: string; expiresAt: string }>("/api/invitations", { method: "POST" }),
   currentWeek: () =>
     request<{ week: WeekInfo; entries: WeekEntry[] }>("/api/week/current"),
   saveEssay: (essay: { title: string; markdown: string; status: "draft" | "submitted" }) =>

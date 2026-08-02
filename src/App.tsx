@@ -54,11 +54,11 @@ function Notice({ message, onClose }: { message: string; onClose: () => void }) 
   );
 }
 
-function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
-  const [mode, setMode] = useState<AuthMode>("login");
+function AuthScreen({ inviteToken, onAuthenticated }: { inviteToken: string; onAuthenticated: (user: User) => void }) {
+  const [mode, setMode] = useState<AuthMode>(inviteToken ? "register" : "login");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ username: "", displayName: "", password: "", inviteCode: "" });
+  const [form, setForm] = useState({ username: "", displayName: "", password: "" });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -67,7 +67,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
     try {
       const result = mode === "login"
         ? await api.login(form.username, form.password)
-        : await api.register(form);
+        : await api.register({ ...form, inviteToken });
       onAuthenticated(result.user);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not sign in");
@@ -86,11 +86,13 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
         <section className="auth-panel">
           <h2>{mode === "login" ? "Sign in" : "Join the circle"}</h2>
           <p className="auth-copy">
-            Write privately through the week. Submitted essays open for everyone on Sunday at 10:00.
+            {mode === "register"
+              ? "Your invitation is ready. Choose your name and begin writing with the circle."
+              : "Write privately through the week. Submitted essays open for everyone on Sunday at 10:00."}
           </p>
         <div className="auth-tabs" role="tablist">
           <button aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>Sign in</button>
-          <button aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>Create account</button>
+          {inviteToken && <button aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>Create account</button>}
         </div>
         <form onSubmit={submit}>
           {mode === "register" && (
@@ -107,16 +109,10 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User) => void
             Password
             <input required minLength={10} type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="At least 10 characters" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
           </label>
-          {mode === "register" && (
-            <label>
-              Invite code
-              <input required type="password" autoComplete="off" placeholder="From your writing circle" value={form.inviteCode} onChange={(event) => setForm({ ...form, inviteCode: event.target.value })} />
-            </label>
-          )}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button wide" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Enter Essayz" : "Create my account"}</button>
         </form>
-          <p className="auth-note">Sunday submissions stay in the current week until midnight.</p>
+          <p className="auth-note">{inviteToken ? "Invitation links work once and expire after seven days." : "Need an account? Ask a circle member for an invitation link."}</p>
         </section>
       </div>
     </main>
@@ -447,10 +443,57 @@ function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
 }
 
 function ProfileScreen({ user, rules, onLogout }: { user: User; rules: Rules; onLogout: () => void }) {
+  const [invitation, setInvitation] = useState<{ inviteUrl: string; expiresAt: string } | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState("");
+
+  async function generateInvitation() {
+    setInviteBusy(true);
+    setInviteMessage("");
+    try {
+      setInvitation(await api.createInvitation());
+    } catch (cause) {
+      setInviteMessage(cause instanceof Error ? cause.message : "Could not create an invitation");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  async function copyInvitation() {
+    if (!invitation) return;
+    try {
+      await navigator.clipboard.writeText(invitation.inviteUrl);
+      setInviteMessage("Invitation copied.");
+    } catch {
+      setInviteMessage("Select the link and copy it manually.");
+    }
+  }
+
   return (
     <>
       <header className="page-header"><div><p className="eyebrow">Your corner</p><h1>Profile</h1></div></header>
       <section className="profile-card"><div><h2>{user.displayName}</h2><p>@{user.username}</p></div></section>
+      <section className="invite-card">
+        <p className="eyebrow">Grow the circle</p>
+        <h2>Invite another writer</h2>
+        <p>Generate a private link for one person. It expires after seven days.</p>
+        {invitation && (
+          <div className="invite-link">
+            <input
+              aria-label="Invitation link"
+              readOnly
+              value={invitation.inviteUrl}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <button className="secondary-button" onClick={copyInvitation}>Copy link</button>
+          </div>
+        )}
+        <button className="primary-button" onClick={generateInvitation} disabled={inviteBusy}>
+          {inviteBusy ? "Generating…" : invitation ? "Generate another link" : "Generate invite link"}
+        </button>
+        {invitation && <small>Valid until {formatDate(invitation.expiresAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.</small>}
+        {inviteMessage && <p className={inviteMessage === "Invitation copied." ? "invite-status" : "form-error"} role="status">{inviteMessage}</p>}
+      </section>
       <section className="settings-card">
         <h2>Circle rules</h2>
         <div><span>Reveal</span><strong>{rules.unlockDay} at {rules.unlockTime}</strong></div>
@@ -487,11 +530,24 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [notice, setNotice] = useState("");
   const [celebration, setCelebration] = useState<{ id: number; kind: CelebrationKind } | null>(null);
+  const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite")?.trim() ?? "");
   const celebrationId = useRef(0);
+
+  function clearInvitation() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("invite");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    setInviteToken("");
+  }
 
   useEffect(() => {
     api.session()
-      .then((data) => { setUser(data.user); setRules(data.rules); setCurrentWeek(data.week); })
+      .then((data) => {
+        setUser(data.user);
+        setRules(data.rules);
+        setCurrentWeek(data.week);
+        if (data.user && inviteToken) clearInvitation();
+      })
       .catch((cause) => {
         if (!(cause instanceof ApiFailure && cause.status === 401)) setNotice(cause.message);
       })
@@ -508,7 +564,7 @@ export default function App() {
   }
 
   if (loading) return <Loading />;
-  if (!user) return <AuthScreen onAuthenticated={(nextUser) => { setUser(nextUser); setRefreshKey((key) => key + 1); }} />;
+  if (!user) return <AuthScreen inviteToken={inviteToken} onAuthenticated={(nextUser) => { clearInvitation(); setUser(nextUser); setRefreshKey((key) => key + 1); }} />;
 
   return (
     <div className="app-shell">

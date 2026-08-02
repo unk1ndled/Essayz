@@ -3,9 +3,10 @@ import {
   currentUser,
   destroySession,
   expiredSessionCookie,
-  inviteCodeMatches,
+  hashInviteToken,
   PASSWORD_HASH_ITERATIONS,
   passwordRecord,
+  randomToken,
   verifyPassword,
   type SessionUser,
   type UserRow,
@@ -92,14 +93,11 @@ function publicRules(env: Env) {
 
 async function register(request: Request, env: Env): Promise<Response> {
   sameOrigin(request);
-  if (!env.INVITE_CODE) {
-    throw new ApiError(503, "Registration is not configured yet");
-  }
   const input = await body<{
     username?: string;
     displayName?: string;
     password?: string;
-    inviteCode?: string;
+    inviteToken?: string;
   }>(request);
   const username = (input.username ?? "").trim().toLowerCase();
   const displayName = (input.displayName ?? "").trim();
@@ -114,8 +112,9 @@ async function register(request: Request, env: Env): Promise<Response> {
   if (password.length < 10 || password.length > 200) {
     throw new ApiError(400, "Password must be at least 10 characters");
   }
-  if (!(await inviteCodeMatches(input.inviteCode ?? "", env.INVITE_CODE))) {
-    throw new ApiError(403, "That invite code is not valid");
+  const inviteToken = input.inviteToken ?? "";
+  if (!/^[A-Za-z0-9_-]{43}$/.test(inviteToken)) {
+    throw new ApiError(403, "This invite link is invalid, expired, or already used");
   }
 
   const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?")
@@ -126,24 +125,67 @@ async function register(request: Request, env: Env): Promise<Response> {
   const iterations = PASSWORD_HASH_ITERATIONS;
   const passwordData = await passwordRecord(password, iterations);
   const user = { id: crypto.randomUUID(), username, displayName };
-  await env.DB.prepare(
-    `INSERT INTO users
-      (id, username, display_name, password_hash, password_salt, password_iterations, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
+  const now = new Date().toISOString();
+  const inviteHash = await hashInviteToken(inviteToken);
+  const [created] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO users
+        (id, username, display_name, password_hash, password_salt, password_iterations, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM invitations
+         WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+       )`,
+    ).bind(
       user.id,
       user.username,
       user.displayName,
       passwordData.hash,
       passwordData.salt,
       iterations,
-      new Date().toISOString(),
-    )
-    .run();
+      now,
+      inviteHash,
+      now,
+    ),
+    env.DB.prepare(
+      `UPDATE invitations SET used_at = ?, used_by = ?
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`,
+    ).bind(now, user.id, inviteHash, now),
+  ]);
+  if (created.meta.changes !== 1) {
+    throw new ApiError(403, "This invite link is invalid, expired, or already used");
+  }
 
   const cookie = await createSession(env, user.id, request);
   return json({ user }, { status: 201, headers: { "Set-Cookie": cookie } });
+}
+
+async function createInvitation(request: Request, env: Env): Promise<Response> {
+  sameOrigin(request);
+  const user = await requireUser(env, request);
+  const token = randomToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 86_400_000).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO invitations (id, token_hash, created_by, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      await hashInviteToken(token),
+      user.id,
+      now.toISOString(),
+      expiresAt,
+    )
+    .run();
+
+  const inviteUrl = new URL(request.url);
+  inviteUrl.pathname = "/";
+  inviteUrl.search = "";
+  inviteUrl.hash = "";
+  inviteUrl.searchParams.set("invite", token);
+  return json({ inviteUrl: inviteUrl.toString(), expiresAt }, { status: 201 });
 }
 
 async function login(request: Request, env: Env): Promise<Response> {
@@ -414,6 +456,9 @@ async function api(request: Request, env: Env): Promise<Response> {
     sameOrigin(request);
     await destroySession(env, request);
     return json({ ok: true }, { headers: { "Set-Cookie": expiredSessionCookie(request) } });
+  }
+  if (request.method === "POST" && pathname === "/api/invitations") {
+    return createInvitation(request, env);
   }
   if (request.method === "GET" && pathname === "/api/week/current") {
     return currentWeek(request, env);

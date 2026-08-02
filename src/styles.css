@@ -179,6 +179,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .profile-card { padding: 0 0 22px; border-bottom: 1px solid var(--border); }
 .profile-card h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 26px; }
 .profile-card p { margin: 2px 0 0; color: var(--muted); }
+.invite-card { margin-top: 28px; padding: 22px 0; border-block: 1px solid var(--border); }
+.invite-card h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 24px; }
+.invite-card > p:not(.eyebrow, .form-error, .invite-status) { max-width: 52ch; margin: 5px 0 18px; color: var(--muted); font-size: 14px; }
+.invite-card > small { display: block; margin-top: 8px; color: var(--faint); }
+.invite-link { margin: 0 0 12px; display: flex; gap: 8px; }
+.invite-link input { min-width: 0; flex: 1; height: 40px; padding: 7px 9px; color: var(--text); border: 1px solid var(--border); border-radius: 0; background: var(--soft); }
+.invite-link .secondary-button { flex: 0 0 auto; }
+.invite-status { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
 .settings-card { margin-top: 28px; }
 .settings-card h2 { margin-bottom: 8px; }
 .settings-card > div { padding: 10px 0; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid var(--border); font-size: 14px; }
@@ -228,6 +236,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .editor-header-actions { gap: 10px; }
   .reader-batch-nav { grid-template-columns: 1fr 1fr; }
   .reader-batch-nav > span { display: none; }
+  .invite-link { align-items: stretch; flex-direction: column; }
 }
 
 @media (prefers-color-scheme: dark) {
