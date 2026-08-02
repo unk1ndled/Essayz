@@ -4,12 +4,14 @@ export interface SessionUser {
   id: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
 }
 
 interface UserRow {
   id: string;
   username: string;
   display_name: string;
+  avatar_url?: string | null;
   password_hash: string;
   password_salt: string;
   password_iterations: number;
@@ -143,15 +145,15 @@ export async function currentUser(env: AuthEnv, request: Request): Promise<Sessi
   if (!token) return null;
 
   const row = await env.DB.prepare(
-    `SELECT users.id, users.username, users.display_name
+    `SELECT users.id, users.username, users.display_name, users.avatar_url
      FROM sessions JOIN users ON users.id = sessions.user_id
      WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
   )
     .bind(await sha256(token), new Date().toISOString())
-    .first<{ id: string; username: string; display_name: string }>();
+    .first<{ id: string; username: string; display_name: string; avatar_url: string | null }>();
 
   return row
-    ? { id: row.id, username: row.username, displayName: row.display_name }
+    ? { id: row.id, username: row.username, displayName: row.display_name, avatarUrl: row.avatar_url }
     : null;
 }
 

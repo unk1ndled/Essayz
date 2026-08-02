@@ -40,9 +40,31 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function Avatar({ user }: { user: User }) {
+  return (
+    <span className="avatar" aria-hidden="true">
+      <span>{initials(user.displayName)}</span>
+      {user.avatarUrl && (
+        <img
+          key={user.avatarUrl}
+          src={user.avatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={(event) => { event.currentTarget.hidden = true; }}
+        />
+      )}
+    </span>
+  );
+}
+
 function wordCount(markdown: string) {
   const clean = markdown.replace(/[#>*_`\[\]()!-]/g, " ").trim();
   return clean ? clean.split(/\s+/).length : 0;
+}
+
+function plainWordCount(value: string) {
+  const text = value.trim();
+  return text ? text.split(/\s+/u).length : 0;
 }
 
 function Notice({ message, onClose }: { message: string; onClose: () => void }) {
@@ -126,10 +148,13 @@ function EntryCard({ entry, unlocked, onOpen, onEdit }: { entry: WeekEntry; unlo
   return (
     <button className={`entry-card ${readable ? "readable" : "sealed"}`} onClick={entry.isMine ? onEdit : readable && entry.id ? onOpen : undefined} disabled={!readable && !entry.isMine}>
       <span className="entry-main">
-        <span className="entry-title">
-          {entry.title || (entry.status === "submitted" && !unlocked ? "Sealed until Sunday" : label)}
+        <Avatar user={entry.author} />
+        <span className="entry-copy">
+          <span className="entry-title">
+            {entry.title || (entry.status === "submitted" && !unlocked ? "Sealed until Sunday" : label)}
+          </span>
+          <span className="entry-author">{entry.author.displayName} · {label}{entry.isMine && <em>you</em>}</span>
         </span>
-        <span className="entry-author">{entry.author.displayName} · {label}{entry.isMine && <em>you</em>}</span>
       </span>
       <span className="entry-action" aria-hidden="true">{action}</span>
     </button>
@@ -298,6 +323,9 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
   const [error, setError] = useState("");
   const [heartError, setHeartError] = useState("");
   const [heartBusy, setHeartBusy] = useState(false);
+  const [petitMotBody, setPetitMotBody] = useState("");
+  const [petitMotBusy, setPetitMotBusy] = useState(false);
+  const [petitMotMessage, setPetitMotMessage] = useState("");
   const page = useRef<HTMLDivElement>(null);
   const essayId = essayIds[index];
 
@@ -306,9 +334,15 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
     setEssay(null);
     setError("");
     setHeartError("");
+    setPetitMotBody("");
+    setPetitMotMessage("");
     page.current?.scrollTo({ top: 0 });
     api.essay(essayId)
-      .then((result) => { if (active) setEssay(result.essay); })
+      .then((result) => {
+        if (!active) return;
+        setEssay(result.essay);
+        setPetitMotBody(result.essay.petitMots.find((petitMot) => petitMot.isMine)?.body ?? "");
+      })
       .catch((cause) => { if (active) setError(cause.message); });
     return () => { active = false; };
   }, [essayId]);
@@ -340,6 +374,30 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
     }
   }
 
+  async function savePetitMot(event: FormEvent) {
+    event.preventDefault();
+    if (!essay || essay.isMine || petitMotBusy) return;
+    setPetitMotBusy(true);
+    setPetitMotMessage("");
+    try {
+      const result = await api.setPetitMot(essay.id, petitMotBody);
+      setEssay((current) => current && current.id === essay.id
+        ? {
+          ...current,
+          petitMots: current.petitMots.some((petitMot) => petitMot.isMine)
+            ? current.petitMots.map((petitMot) => petitMot.isMine ? result.petitMot : petitMot)
+            : [...current.petitMots, result.petitMot],
+        }
+        : current);
+      setPetitMotBody(result.petitMot.body);
+      setPetitMotMessage("Your petit mot is saved.");
+    } catch (cause) {
+      setPetitMotMessage(cause instanceof Error ? cause.message : "Could not save your petit mot");
+    } finally {
+      setPetitMotBusy(false);
+    }
+  }
+
   function next() {
     if (index === essayIds.length - 1) onClose();
     else setIndex((current) => current + 1);
@@ -366,7 +424,7 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
         <main className="reader-shell">
           <p className="eyebrow">{formatDate(essay.weekKey, { month: "long", day: "numeric", year: "numeric" })}</p>
           <h1>{essay.title}</h1>
-          <div className="byline"><span className="avatar">{initials(essay.author.displayName)}</span><span>By {essay.author.displayName}<small>{wordCount(essay.markdown)} words</small></span></div>
+          <div className="byline"><Avatar user={essay.author} /><span>By {essay.author.displayName}<small>{wordCount(essay.markdown)} words</small></span></div>
           <Suspense fallback={<Loading />}><Markdown source={essay.markdown} /></Suspense>
           <section className="reader-response" aria-label="Essay response">
             <button
@@ -380,6 +438,51 @@ function Reader({ essayIds, onClose, onCelebrate }: { essayIds: string[]; onClos
               {essay.heartCount > 0 && <small>{essay.heartCount}</small>}
             </button>
             {heartError && <p className="reader-response-error" role="alert">{heartError}</p>}
+          </section>
+          <section className="petit-mots" aria-labelledby="petit-mots-heading">
+            <div className="petit-mots-heading">
+              <div>
+                <p className="eyebrow">Thoughts from the circle</p>
+                <h2 id="petit-mots-heading">Petits mots</h2>
+              </div>
+              <span>{essay.petitMots.length}</span>
+            </div>
+            {essay.petitMots.length > 0 ? (
+              <div className="petit-mot-list">
+                {essay.petitMots.map((petitMot) => (
+                  <article className="petit-mot" key={petitMot.author.id}>
+                    <Avatar user={petitMot.author} />
+                    <div>
+                      <p>{petitMot.body}</p>
+                      <small>{petitMot.author.displayName}{petitMot.isMine ? " · you" : ""}</small>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="petit-mots-empty">No petits mots yet.</p>
+            )}
+            {!essay.isMine && (
+              <form className="petit-mot-form" onSubmit={savePetitMot}>
+                <label htmlFor={`petit-mot-${essay.id}`}>
+                  {essay.petitMots.some((petitMot) => petitMot.isMine) ? "Edit your petit mot" : "Leave a petit mot"}
+                </label>
+                <textarea
+                  id={`petit-mot-${essay.id}`}
+                  maxLength={2_000}
+                  placeholder="Share a thought, a feeling, or a line that stayed with you…"
+                  value={petitMotBody}
+                  onChange={(event) => { setPetitMotBody(event.target.value); setPetitMotMessage(""); }}
+                />
+                <div className="petit-mot-form-footer">
+                  <span className={plainWordCount(petitMotBody) > 100 ? "over-limit" : ""}>{plainWordCount(petitMotBody)} / 100 words</span>
+                  <button className="secondary-button" disabled={petitMotBusy || !petitMotBody.trim() || plainWordCount(petitMotBody) > 100}>
+                    {petitMotBusy ? "Saving…" : "Share"}
+                  </button>
+                </div>
+                {petitMotMessage && <p className={petitMotMessage === "Your petit mot is saved." ? "petit-mot-success" : "reader-response-error"} role="status">{petitMotMessage}</p>}
+              </form>
+            )}
           </section>
           {essayIds.length > 1 && (
             <nav className="reader-batch-nav" aria-label="Weekly essay batch">
@@ -429,7 +532,11 @@ function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
                 <div className="archive-week-entries">
                   {items.map((entry) => (
                     <button className="archive-row" key={entry.id} onClick={() => onRead(entry.id)}>
-                      <span><strong>{entry.title}</strong><small>Submitted by {entry.author.displayName}</small></span><span>Read ↗</span>
+                      <span className="archive-row-main">
+                        <Avatar user={entry.author} />
+                        <span className="archive-row-copy"><strong>{entry.title}</strong><small>Submitted by {entry.author.displayName}</small></span>
+                      </span>
+                      <span>Read ↗</span>
                     </button>
                   ))}
                 </div>
@@ -442,10 +549,31 @@ function ArchiveScreen({ onRead }: { onRead: (id: string) => void }) {
   );
 }
 
-function ProfileScreen({ user, rules, onLogout }: { user: User; rules: Rules; onLogout: () => void }) {
+function ProfileScreen({ user, rules, onLogout, onUserUpdated }: { user: User; rules: Rules; onLogout: () => void; onUserUpdated: (user: User) => void }) {
+  const [displayName, setDisplayName] = useState(user.displayName);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMessage, setProfileMessage] = useState("");
   const [invitation, setInvitation] = useState<{ inviteUrl: string; expiresAt: string } | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMessage, setInviteMessage] = useState("");
+
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault();
+    setProfileBusy(true);
+    setProfileMessage("");
+    try {
+      const result = await api.updateProfile(displayName, avatarUrl);
+      setDisplayName(result.user.displayName);
+      setAvatarUrl(result.user.avatarUrl ?? "");
+      onUserUpdated(result.user);
+      setProfileMessage("Saved.");
+    } catch (cause) {
+      setProfileMessage(cause instanceof Error ? cause.message : "Could not update your profile");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
 
   async function generateInvitation() {
     setInviteBusy(true);
@@ -470,39 +598,68 @@ function ProfileScreen({ user, rules, onLogout }: { user: User; rules: Rules; on
   }
 
   return (
-    <>
-      <header className="page-header"><div><p className="eyebrow">Your corner</p><h1>Profile</h1></div></header>
-      <section className="profile-card"><div><h2>{user.displayName}</h2><p>@{user.username}</p></div></section>
-      <section className="invite-card">
-        <p className="eyebrow">Grow the circle</p>
-        <h2>Invite another writer</h2>
-        <p>Generate a private link for one person. It expires after seven days.</p>
-        {invitation && (
-          <div className="invite-link">
-            <input
-              aria-label="Invitation link"
-              readOnly
-              value={invitation.inviteUrl}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <button className="secondary-button" onClick={copyInvitation}>Copy link</button>
+    <div className="profile-page">
+      <header className="page-header profile-header"><div><p className="eyebrow">Your corner</p><h1>Profile</h1></div></header>
+      <div className="profile-sections">
+        <section className="profile-card profile-section">
+          <div className="profile-avatar-preview">
+            <Avatar user={{ ...user, displayName: displayName.trim() || user.displayName, avatarUrl: avatarUrl.trim() || null }} />
+            <div><h2>{displayName.trim() || user.displayName}</h2><p>@{user.username}</p></div>
           </div>
-        )}
-        <button className="primary-button" onClick={generateInvitation} disabled={inviteBusy}>
-          {inviteBusy ? "Generating…" : invitation ? "Generate another link" : "Generate invite link"}
-        </button>
-        {invitation && <small>Valid until {formatDate(invitation.expiresAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.</small>}
-        {inviteMessage && <p className={inviteMessage === "Invitation copied." ? "invite-status" : "form-error"} role="status">{inviteMessage}</p>}
-      </section>
-      <section className="settings-card">
-        <h2>Circle rules</h2>
-        <div><span>Reveal</span><strong>{rules.unlockDay} at {rules.unlockTime}</strong></div>
-        <div><span>Submissions</span><strong>Until Sunday ends</strong></div>
-        <div><span>Timezone</span><strong>{rules.timeZone}</strong></div>
-        <div><span>Format</span><strong>Markdown · .md</strong></div>
-      </section>
-      <button className="secondary-button danger" onClick={onLogout}>Sign out</button>
-    </>
+          <form onSubmit={saveProfile}>
+            <div className="profile-field">
+              <label htmlFor="profile-display-name">Display name</label>
+              <input id="profile-display-name" required maxLength={50} autoComplete="name" value={displayName} onChange={(event) => { setDisplayName(event.target.value); setProfileMessage(""); }} />
+            </div>
+            <div className="profile-field">
+              <label htmlFor="profile-avatar-url">Profile photo</label>
+              <input id="profile-avatar-url" type="url" inputMode="url" maxLength={500} placeholder="https://example.com/you.jpg" value={avatarUrl} onChange={(event) => { setAvatarUrl(event.target.value); setProfileMessage(""); }} />
+              <small>Paste an HTTPS image URL. Leave blank to use your initials.</small>
+            </div>
+            <div className="profile-form-actions">
+              <button className="primary-button" disabled={profileBusy || (displayName.trim() === user.displayName && avatarUrl.trim() === (user.avatarUrl ?? ""))}>{profileBusy ? "Saving…" : "Save changes"}</button>
+              {avatarUrl && <button className="text-button" type="button" onClick={() => { setAvatarUrl(""); setProfileMessage(""); }}>Use initials instead</button>}
+              {profileMessage && <span className={profileMessage === "Saved." ? "profile-status" : "profile-error"} role="status">{profileMessage}</span>}
+            </div>
+          </form>
+        </section>
+        <section className="invite-card profile-section">
+          <div className="profile-section-heading">
+            <p className="eyebrow">Grow the circle</p>
+            <h2>Invite another writer</h2>
+            <p>Generate a private, single-use link. It expires after seven days.</p>
+          </div>
+          {invitation && (
+            <div className="invite-result">
+              <div className="invite-link">
+                <input
+                  aria-label="Invitation link"
+                  readOnly
+                  value={invitation.inviteUrl}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <button className="secondary-button" onClick={copyInvitation}>Copy</button>
+              </div>
+              <small>Valid until {formatDate(invitation.expiresAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.</small>
+            </div>
+          )}
+          <button className={invitation ? "secondary-button" : "primary-button"} onClick={generateInvitation} disabled={inviteBusy}>
+            {inviteBusy ? "Generating…" : invitation ? "Create another link" : "Generate invite link"}
+          </button>
+          {inviteMessage && <p className={inviteMessage === "Invitation copied." ? "invite-status" : "profile-error"} role="status">{inviteMessage}</p>}
+        </section>
+        <section className="settings-card profile-section">
+          <div className="profile-section-heading"><h2>Circle settings</h2></div>
+          <div className="settings-list">
+            <div><span>Reveal</span><strong>{rules.unlockDay} at {rules.unlockTime}</strong></div>
+            <div><span>Submissions</span><strong>Until Sunday ends</strong></div>
+            <div><span>Timezone</span><strong>{rules.timeZone}</strong></div>
+            <div><span>Writing format</span><strong>Markdown · .md</strong></div>
+          </div>
+        </section>
+      </div>
+      <div className="profile-footer"><button className="text-button profile-signout" onClick={onLogout}>Sign out</button></div>
+    </div>
   );
 }
 
@@ -572,7 +729,7 @@ export default function App() {
       <main className="content-shell">
         {screen === "week" && <WeekScreen refreshKey={refreshKey} onEdit={(entry) => setEditing(entry ?? undefined)} onRead={(id) => setReading([id])} onReadBatch={setReading} />}
         {screen === "archive" && <ArchiveScreen onRead={(id) => setReading([id])} />}
-        {screen === "profile" && <ProfileScreen user={user} rules={rules} onLogout={logout} />}
+        {screen === "profile" && <ProfileScreen user={user} rules={rules} onLogout={logout} onUserUpdated={setUser} />}
       </main>
       <footer className="site-footer">A private place to write together.</footer>
       {editing !== null && currentWeek && <Editor entry={editing} week={currentWeek} onClose={() => setEditing(null)} onCelebrate={celebrate} onSaved={() => { setEditing(null); setRefreshKey((key) => key + 1); setNotice("Your essay is safely saved."); }} />}

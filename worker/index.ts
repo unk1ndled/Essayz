@@ -11,6 +11,7 @@ import {
   type SessionUser,
   type UserRow,
 } from "./auth";
+import { validatePetitMot } from "./petitMots";
 import { weekForDate, weekForKey } from "./schedule";
 
 interface EssayRow {
@@ -24,6 +25,7 @@ interface EssayRow {
   updated_at: string;
   username?: string;
   display_name?: string;
+  avatar_url?: string | null;
   heart_count?: number;
   hearted_by_viewer?: number;
 }
@@ -31,6 +33,16 @@ interface EssayRow {
 interface WeekRow extends Omit<EssayRow, "status" | "markdown"> {
   status: "draft" | "submitted" | "missing";
   markdown: string | null;
+}
+
+interface PetitMotRow {
+  user_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
 }
 
 class ApiError extends Error {
@@ -91,6 +103,20 @@ function publicRules(env: Env) {
   };
 }
 
+function profileAvatarUrl(value: unknown): string | null {
+  if (typeof value !== "string") throw new ApiError(400, "Profile photo URL must be text");
+  const avatarUrl = value.trim();
+  if (!avatarUrl) return null;
+  if (avatarUrl.length > 500) throw new ApiError(400, "Profile photo URL is too long");
+  try {
+    const parsed = new URL(avatarUrl);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) throw new Error();
+  } catch {
+    throw new ApiError(400, "Profile photo must use a valid HTTPS URL");
+  }
+  return avatarUrl;
+}
+
 async function register(request: Request, env: Env): Promise<Response> {
   sameOrigin(request);
   const input = await body<{
@@ -124,7 +150,7 @@ async function register(request: Request, env: Env): Promise<Response> {
 
   const iterations = PASSWORD_HASH_ITERATIONS;
   const passwordData = await passwordRecord(password, iterations);
-  const user = { id: crypto.randomUUID(), username, displayName };
+  const user = { id: crypto.randomUUID(), username, displayName, avatarUrl: null };
   const now = new Date().toISOString();
   const inviteHash = await hashInviteToken(inviteToken);
   const [created] = await env.DB.batch([
@@ -188,12 +214,31 @@ async function createInvitation(request: Request, env: Env): Promise<Response> {
   return json({ inviteUrl: inviteUrl.toString(), expiresAt }, { status: 201 });
 }
 
+async function updateProfile(request: Request, env: Env): Promise<Response> {
+  sameOrigin(request);
+  const user = await requireUser(env, request);
+  const input = await body<{ displayName?: string; avatarUrl?: unknown }>(request);
+  const displayName = (input.displayName ?? "").trim();
+  if (displayName.length < 1 || displayName.length > 50) {
+    throw new ApiError(400, "Display name must be 1–50 characters");
+  }
+
+  const avatarUrl = input.avatarUrl === undefined ? user.avatarUrl : profileAvatarUrl(input.avatarUrl);
+
+  await env.DB.prepare("UPDATE users SET display_name = ?, avatar_url = ? WHERE id = ?")
+    .bind(displayName, avatarUrl, user.id)
+    .run();
+
+  return json({ user: { ...user, displayName, avatarUrl } });
+}
+
 async function login(request: Request, env: Env): Promise<Response> {
   sameOrigin(request);
   const input = await body<{ username?: string; password?: string }>(request);
   const username = (input.username ?? "").trim().toLowerCase();
   const user = await env.DB.prepare(
-    `SELECT id, username, display_name, password_hash, password_salt, password_iterations
+    `SELECT id, username, display_name, avatar_url,
+            password_hash, password_salt, password_iterations
      FROM users WHERE username = ?`,
   )
     .bind(username)
@@ -204,7 +249,14 @@ async function login(request: Request, env: Env): Promise<Response> {
   }
   const cookie = await createSession(env, user.id, request);
   return json(
-    { user: { id: user.id, username: user.username, displayName: user.display_name } },
+    {
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,
+        avatarUrl: user.avatar_url ?? null,
+      },
+    },
     { headers: { "Set-Cookie": cookie } },
   );
 }
@@ -224,6 +276,7 @@ function readableEssay(row: EssayRow | WeekRow, viewerId: string, isUnlocked: bo
       id: row.user_id,
       username: row.username,
       displayName: row.display_name,
+      avatarUrl: row.avatar_url ?? null,
     },
     isMine,
     status: row.status,
@@ -238,7 +291,7 @@ async function currentWeek(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(env, request);
   const week = weekForDate(new Date(), appTimeZone(env));
   const results = await env.DB.prepare(
-    `SELECT users.id AS user_id, users.username, users.display_name,
+    `SELECT users.id AS user_id, users.username, users.display_name, users.avatar_url,
             essays.id, essays.week_key, essays.title,
             CASE WHEN users.id = ? THEN essays.markdown ELSE NULL END AS markdown,
             COALESCE(essays.status, 'missing') AS status,
@@ -258,6 +311,7 @@ async function currentWeek(request: Request, env: Env): Promise<Response> {
           id: row.user_id,
           username: row.username,
           displayName: row.display_name,
+          avatarUrl: row.avatar_url ?? null,
         },
         isMine: row.user_id === user.id,
         status: "missing",
@@ -330,7 +384,7 @@ async function archive(request: Request, env: Env): Promise<Response> {
   const currentClause = current.isUnlocked ? "OR essays.week_key = ?" : "";
   const query = `SELECT essays.id, essays.user_id, essays.week_key, essays.title,
                         essays.submitted_at, essays.updated_at,
-                        users.username, users.display_name
+                        users.username, users.display_name, users.avatar_url
                  FROM essays JOIN users ON users.id = essays.user_id
                  WHERE essays.status = 'submitted'
                    AND (essays.week_key < ? ${currentClause})
@@ -349,6 +403,7 @@ async function archive(request: Request, env: Env): Promise<Response> {
         id: row.user_id,
         username: row.username,
         displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? null,
       },
       isMine: row.user_id === user.id,
       submittedAt: row.submitted_at,
@@ -358,8 +413,9 @@ async function archive(request: Request, env: Env): Promise<Response> {
 
 async function essayById(request: Request, env: Env, essayId: string): Promise<Response> {
   const user = await requireUser(env, request);
-  const row = await env.DB.prepare(
-    `SELECT essays.*, users.username, users.display_name,
+  const database = env.DB.withSession("first-primary");
+  const row = await database.prepare(
+    `SELECT essays.*, users.username, users.display_name, users.avatar_url,
             (SELECT COUNT(*) FROM essay_hearts WHERE essay_id = essays.id) AS heart_count,
             EXISTS(
               SELECT 1 FROM essay_hearts
@@ -378,6 +434,19 @@ async function essayById(request: Request, env: Env, essayId: string): Promise<R
     throw new ApiError(404, "Essay not found");
   }
 
+  const petitMots = week.isUnlocked && row.status === "submitted"
+    ? await database.prepare(
+      `SELECT petit_mots.user_id, petit_mots.body,
+              petit_mots.created_at, petit_mots.updated_at,
+              users.username, users.display_name, users.avatar_url
+       FROM petit_mots JOIN users ON users.id = petit_mots.user_id
+       WHERE petit_mots.essay_id = ?
+       ORDER BY petit_mots.created_at ASC`,
+    )
+      .bind(essayId)
+      .all<PetitMotRow>()
+    : null;
+
   return json({
     essay: {
       id: row.id,
@@ -390,12 +459,82 @@ async function essayById(request: Request, env: Env, essayId: string): Promise<R
         id: row.user_id,
         username: row.username,
         displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? null,
       },
       isMine,
       heartCount: row.heart_count ?? 0,
       heartedByMe: Boolean(row.hearted_by_viewer),
+      petitMots: petitMots?.results.map((petitMot) => ({
+        body: petitMot.body,
+        createdAt: petitMot.created_at,
+        updatedAt: petitMot.updated_at,
+        author: {
+          id: petitMot.user_id,
+          username: petitMot.username,
+          displayName: petitMot.display_name,
+          avatarUrl: petitMot.avatar_url,
+        },
+        isMine: petitMot.user_id === user.id,
+      })) ?? [],
     },
     week,
+  });
+}
+
+async function setPetitMot(request: Request, env: Env, essayId: string): Promise<Response> {
+  sameOrigin(request);
+  const user = await requireUser(env, request);
+  const input = await body<{ body?: unknown }>(request);
+  if (typeof input.body !== "string") throw new ApiError(400, "Petit mot must be text");
+
+  let text: string;
+  try {
+    text = validatePetitMot(input.body);
+  } catch (error) {
+    throw new ApiError(400, error instanceof Error ? error.message : "Invalid petit mot");
+  }
+
+  const database = env.DB.withSession("first-primary");
+  const essay = await database.prepare(
+    "SELECT user_id, week_key, status FROM essays WHERE id = ?",
+  )
+    .bind(essayId)
+    .first<Pick<EssayRow, "user_id" | "week_key" | "status">>();
+  if (!essay) throw new ApiError(404, "Essay not found");
+
+  const week = weekForKey(essay.week_key, new Date(), appTimeZone(env));
+  if (!week.isUnlocked || essay.status !== "submitted") {
+    throw new ApiError(404, "Essay not found");
+  }
+  if (essay.user_id === user.id) {
+    throw new ApiError(400, "You cannot leave a petit mot on your own essay");
+  }
+
+  const now = new Date().toISOString();
+  await database.prepare(
+    `INSERT INTO petit_mots (essay_id, user_id, body, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(essay_id, user_id) DO UPDATE SET
+       body = excluded.body,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(essayId, user.id, text, now, now)
+    .run();
+
+  const saved = await database.prepare(
+    "SELECT created_at, updated_at FROM petit_mots WHERE essay_id = ? AND user_id = ?",
+  )
+    .bind(essayId, user.id)
+    .first<{ created_at: string; updated_at: string }>();
+
+  return json({
+    petitMot: {
+      body: text,
+      createdAt: saved?.created_at ?? now,
+      updatedAt: saved?.updated_at ?? now,
+      author: user,
+      isMine: true,
+    },
   });
 }
 
@@ -460,6 +599,9 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (request.method === "POST" && pathname === "/api/invitations") {
     return createInvitation(request, env);
   }
+  if (request.method === "PUT" && pathname === "/api/profile") {
+    return updateProfile(request, env);
+  }
   if (request.method === "GET" && pathname === "/api/week/current") {
     return currentWeek(request, env);
   }
@@ -467,6 +609,10 @@ async function api(request: Request, env: Env): Promise<Response> {
     return saveCurrentEssay(request, env);
   }
   if (request.method === "GET" && pathname === "/api/archive") return archive(request, env);
+  const petitMotMatch = pathname.match(/^\/api\/essays\/([a-f0-9-]+)\/petit-mot$/i);
+  if (request.method === "PUT" && petitMotMatch) {
+    return setPetitMot(request, env, petitMotMatch[1]);
+  }
   const heartMatch = pathname.match(/^\/api\/essays\/([a-f0-9-]+)\/heart$/i);
   if (request.method === "PUT" && heartMatch) {
     return setEssayHeart(request, env, heartMatch[1]);

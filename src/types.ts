@@ -2,6 +2,15 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
+}
+
+export interface PetitMot {
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  author: User;
+  isMine: boolean;
 }
 
 export interface WeekInfo {
@@ -51,4 +60,5 @@ export interface FullEssay {
   isMine: boolean;
   heartCount: number;
   heartedByMe: boolean;
+  petitMots: PetitMot[];
 }

@@ -1,4 +1,4 @@
-import type { ArchiveEntry, FullEssay, Rules, User, WeekEntry, WeekInfo } from "./types";
+import type { ArchiveEntry, FullEssay, PetitMot, Rules, User, WeekEntry, WeekInfo } from "./types";
 
 export class ApiFailure extends Error {
   constructor(
@@ -42,6 +42,11 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   createInvitation: () =>
     request<{ inviteUrl: string; expiresAt: string }>("/api/invitations", { method: "POST" }),
+  updateProfile: (displayName: string, avatarUrl: string) =>
+    request<{ user: User }>("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify({ displayName, avatarUrl }),
+    }),
   currentWeek: () =>
     request<{ week: WeekInfo; entries: WeekEntry[] }>("/api/week/current"),
   saveEssay: (essay: { title: string; markdown: string; status: "draft" | "submitted" }) =>
@@ -55,5 +60,10 @@ export const api = {
     request<{ hearted: boolean; heartCount: number }>(`/api/essays/${id}/heart`, {
       method: "PUT",
       body: JSON.stringify({ hearted }),
+    }),
+  setPetitMot: (id: string, body: string) =>
+    request<{ petitMot: PetitMot }>(`/api/essays/${id}/petit-mot`, {
+      method: "PUT",
+      body: JSON.stringify({ body }),
     }),
 };

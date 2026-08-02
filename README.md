@@ -8,7 +8,9 @@ A private, mobile-first weekly writing circle. Members write or import Markdown 
 - One Markdown draft per member per week
 - Write/preview modes, a small Markdown toolbar, `.md` import, and `.md` export
 - Server-enforced privacy before the reveal (other people’s Markdown never reaches the browser early)
-- A guided Sunday reading batch with per-reader hearts, plus a week-by-week archive roadmap
+- A guided Sunday reading batch with per-reader hearts and 100-word petits mots
+- Member profile photos with initials as the overridable default
+- A week-by-week archive roadmap
 - DST-aware weekly scheduling; no cron trigger is required
 - Responsive UI and a web-app manifest for adding Essayz to a phone’s home screen
 - A Cloudflare Worker, static assets, and D1 database in one deployment
